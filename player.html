@@ -174,6 +174,32 @@
     opacity: 0.6;
   }
 
+  /* ─── Subdivision Selector ─── */
+  .subdiv-grid {
+    display: flex;
+    gap: 6px;
+  }
+  .subdiv-btn {
+    flex: 1;
+    padding: 8px 4px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .subdiv-btn:hover { border-color: var(--accent); color: var(--text); }
+  .subdiv-btn.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+  }
+
   /* ─── Canvas ─── */
   .viz-container {
     background: var(--surface);
@@ -280,8 +306,26 @@
     <div class="metro-grid" id="metroGrid"></div>
   </div>
 
+  <!-- Subdivision Selector -->
+  <div class="control-group full-width" style="margin-bottom:12px">
+    <div class="control-label">Subdivision</div>
+    <div class="subdiv-grid" id="subdivGrid">
+      <button class="subdiv-btn active" data-subdiv="1">&#9833; Quarter</button>
+      <button class="subdiv-btn" data-subdiv="2">&#9834; 8th</button>
+      <button class="subdiv-btn" data-subdiv="3">&#9835; Triplet</button>
+      <button class="subdiv-btn" data-subdiv="4">&#9836; 16th</button>
+    </div>
+  </div>
+
   <!-- Controls -->
   <div class="controls">
+    <div class="control-group">
+      <div class="control-label">Volume</div>
+      <div class="slider-row">
+        <input type="range" id="volumeSlider" min="0" max="1" value="0.8" step="0.01">
+        <span class="slider-val" id="volumeVal">80%</span>
+      </div>
+    </div>
     <div class="control-group">
       <div class="control-label">Tempo (BPM)</div>
       <div class="slider-row">
@@ -384,6 +428,9 @@ let arcAmplitude = 12.0;
 let phraseLength = 8; // bars
 let beatsPerBar = 4;
 let beta = 0.9;
+let subdivision = 1; // 1=quarter, 2=8th, 3=triplet, 4=16th
+let masterVolume = 0.8;
+let masterGain = null;
 
 // ─── 1/f Noise Generation (Voss-McCartney algorithm) ───
 class VossMcCartney {
@@ -632,21 +679,36 @@ function getTotalDrift(beatIdx) {
 function initAudio() {
   if (!audioCtx) {
     audioCtx = new AudioContext();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = masterVolume;
+    masterGain.connect(audioCtx.destination);
   }
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
   }
 }
 
-function scheduleClick(time, isDownbeat) {
+// type: 'downbeat' | 'beat' | 'subdivision'
+function scheduleClick(time, type) {
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
-  osc.frequency.value = isDownbeat ? 800 : 1200;
-  const amp = isDownbeat ? 0.9 : 0.6;
-  const dur = isDownbeat ? 0.020 : 0.012;
 
+  let freq, amp, dur;
+  switch (type) {
+    case 'downbeat':
+      freq = 800; amp = 0.9; dur = 0.020;
+      break;
+    case 'beat':
+      freq = 1200; amp = 0.6; dur = 0.012;
+      break;
+    case 'subdivision':
+      freq = 1600; amp = 0.3; dur = 0.008;
+      break;
+  }
+
+  osc.frequency.value = freq;
   osc.connect(gain);
-  gain.connect(audioCtx.destination);
+  gain.connect(masterGain);
   gain.gain.setValueAtTime(amp, time);
   gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
   osc.start(time);
@@ -661,8 +723,19 @@ function scheduler() {
     const isDownbeat = (beatIndex % beatsPerBar) === 0;
     const { total, macro, pink } = getTotalDrift(beatIndex);
     const actualTime = nextBeatTime + total / 1000;
+    const beatPeriod = 60.0 / bpm;
 
-    scheduleClick(Math.max(actualTime, audioCtx.currentTime + 0.005), isDownbeat);
+    // Schedule main beat click
+    const clickType = isDownbeat ? 'downbeat' : 'beat';
+    scheduleClick(Math.max(actualTime, audioCtx.currentTime + 0.005), clickType);
+
+    // Schedule subdivision clicks between this beat and the next
+    if (subdivision > 1) {
+      for (let s = 1; s < subdivision; s++) {
+        const subTime = actualTime + (s / subdivision) * beatPeriod;
+        scheduleClick(Math.max(subTime, audioCtx.currentTime + 0.005), 'subdivision');
+      }
+    }
 
     // Record history
     driftHistory.push(total);
@@ -676,7 +749,6 @@ function scheduler() {
     updateBeatUI(beatIndex, total);
 
     beatIndex++;
-    const beatPeriod = 60.0 / bpm;
     nextBeatTime += beatPeriod;
   }
 }
@@ -944,6 +1016,21 @@ window.addEventListener('load', () => {
       toggle();
     }
   });
+
+  // Subdivision buttons
+  document.querySelectorAll('.subdiv-btn').forEach(btn => {
+    btn.onclick = () => {
+      subdivision = parseInt(btn.dataset.subdiv);
+      document.querySelectorAll('.subdiv-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    };
+  });
+
+  // Volume slider
+  bindSlider('volumeSlider', 'volumeVal', () => masterVolume, v => {
+    masterVolume = v;
+    if (masterGain) masterGain.gain.value = v;
+  }, v => Math.round(v * 100) + '%');
 
   bindSlider('bpmSlider', 'bpmSliderVal', () => bpm, v => {
     bpm = v;
