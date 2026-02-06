@@ -695,6 +695,9 @@ function initAudio() {
     // Build a tiny impulse-response reverb for ambience
     reverbBus = buildReverb(audioCtx, 0.4, 1.2);
     reverbBus._wet.connect(masterGain);
+
+    // Pre-allocate drum engine buffers and shared nodes
+    initDrumEngine();
   }
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
@@ -728,21 +731,62 @@ function buildReverb(ctx, decay, duration) {
   return input;
 }
 
-// ─── Drum Synthesis ───
+// ─── Drum Synthesis (optimized) ───
 
-function makeNoiseBuf(duration) {
-  const len = Math.ceil(audioCtx.sampleRate * duration);
-  const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
-  return buf;
+// Pre-allocated noise buffers — reused instead of creating per-hit
+const NOISE_POOL_SIZE = 4;
+let noisePool = [];      // [{buf, len}]
+let noisePoolIdx = 0;
+let kickReverbSend = null;
+let snareReverbSend = null;
+
+// Persistent filter chains for hi-hat (most frequent sound)
+let hihatFilterChain = null;
+
+function initDrumEngine() {
+  // Pre-generate noise buffers at common durations
+  const durations = [0.06, 0.08, 0.14, 0.16];
+  noisePool = durations.map(dur => {
+    const len = Math.ceil(audioCtx.sampleRate * dur);
+    const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    return buf;
+  });
+
+  // Shared reverb sends — one per instrument type, always connected
+  if (reverbBus) {
+    kickReverbSend = audioCtx.createGain();
+    kickReverbSend.gain.value = 0.1;
+    kickReverbSend.connect(reverbBus);
+
+    snareReverbSend = audioCtx.createGain();
+    snareReverbSend.gain.value = 0.2;
+    snareReverbSend.connect(reverbBus);
+  }
+}
+
+function getNoiseBuffer(short) {
+  // Round-robin through pool; short hits use indices 0-1, long use 2-3
+  const offset = short ? 0 : 2;
+  const idx = offset + (noisePoolIdx++ & 1);
+  return noisePool[idx];
+}
+
+// Schedule cleanup: disconnect nodes after sound finishes to free references
+function cleanupAfter(nodes, time) {
+  const ms = Math.max(0, (time - audioCtx.currentTime) * 1000) + 50;
+  setTimeout(() => {
+    for (const n of nodes) {
+      try { n.disconnect(); } catch(e) {}
+    }
+  }, ms);
 }
 
 function scheduleKick(time, accent) {
-  const t = Math.max(time, audioCtx.currentTime + 0.002);
+  const t = time;
   const amp = accent ? 0.7 : 0.5;
 
-  // Sub body — sine sweep 150→45 Hz
   const body = audioCtx.createOscillator();
   body.type = 'sine';
   body.frequency.setValueAtTime(150, t);
@@ -754,7 +798,6 @@ function scheduleKick(time, accent) {
   body.connect(bodyG);
   bodyG.connect(masterGain);
 
-  // Click transient — short triangle burst
   const click = audioCtx.createOscillator();
   click.type = 'triangle';
   click.frequency.setValueAtTime(3500, t);
@@ -765,22 +808,17 @@ function scheduleKick(time, accent) {
   click.connect(clickG);
   clickG.connect(masterGain);
 
-  // Reverb send (subtle)
-  if (reverbBus) {
-    const send = audioCtx.createGain();
-    send.gain.value = 0.1;
-    bodyG.connect(send);
-    send.connect(reverbBus);
-  }
+  if (kickReverbSend) bodyG.connect(kickReverbSend);
 
-  body.start(t); body.stop(t + 0.25);
+  const end = t + 0.25;
+  body.start(t); body.stop(end);
   click.start(t); click.stop(t + 0.05);
+  cleanupAfter([body, bodyG, click, clickG], end);
 }
 
 function scheduleSnare(time) {
-  const t = Math.max(time, audioCtx.currentTime + 0.002);
+  const t = time;
 
-  // Body — sine at ~185Hz with quick decay
   const body = audioCtx.createOscillator();
   body.type = 'sine';
   body.frequency.setValueAtTime(185, t);
@@ -791,14 +829,12 @@ function scheduleSnare(time) {
   body.connect(bodyG);
   bodyG.connect(masterGain);
 
-  // Noise crack — bandpass-filtered white noise
   const noise = audioCtx.createBufferSource();
-  noise.buffer = makeNoiseBuf(0.12);
+  noise.buffer = getNoiseBuffer(false);
   const bp = audioCtx.createBiquadFilter();
   bp.type = 'bandpass';
   bp.frequency.value = 3800;
   bp.Q.value = 0.8;
-  // High shelf to add sizzle
   const hi = audioCtx.createBiquadFilter();
   hi.type = 'highshelf';
   hi.frequency.value = 6000;
@@ -812,70 +848,50 @@ function scheduleSnare(time) {
   hi.connect(noiseG);
   noiseG.connect(masterGain);
 
-  // Reverb send — snare gets a bit more room
-  if (reverbBus) {
-    const send = audioCtx.createGain();
-    send.gain.value = 0.2;
-    noiseG.connect(send);
-    bodyG.connect(send);
-    send.connect(reverbBus);
+  if (snareReverbSend) {
+    noiseG.connect(snareReverbSend);
+    bodyG.connect(snareReverbSend);
   }
 
+  const end = t + 0.15;
   body.start(t); body.stop(t + 0.12);
-  noise.start(t); noise.stop(t + 0.15);
+  noise.start(t); noise.stop(end);
+  cleanupAfter([body, bodyG, noise, bp, hi, noiseG], end);
 }
 
 function scheduleHihat(time, open) {
-  const t = Math.max(time, audioCtx.currentTime + 0.002);
+  const t = time;
   const dur = open ? 0.12 : 0.04;
   const amp = open ? 0.12 : 0.09;
 
-  // Filtered noise — highpass for metallic shimmer
+  // Single filtered noise — simplified chain (1 filter instead of 2 + oscillator)
   const noise = audioCtx.createBufferSource();
-  noise.buffer = makeNoiseBuf(dur + 0.02);
+  noise.buffer = getNoiseBuffer(true);
   const hp = audioCtx.createBiquadFilter();
   hp.type = 'highpass';
   hp.frequency.value = 7500;
-  hp.Q.value = 0.6;
-  const peak = audioCtx.createBiquadFilter();
-  peak.type = 'peaking';
-  peak.frequency.value = 10000;
-  peak.gain.value = 6;
-  peak.Q.value = 2;
+  hp.Q.value = 1.2; // slightly resonant to add metallic character
   const noiseG = audioCtx.createGain();
   noiseG.gain.setValueAtTime(amp, t);
   noiseG.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   noise.connect(hp);
-  hp.connect(peak);
-  peak.connect(noiseG);
+  hp.connect(noiseG);
   noiseG.connect(masterGain);
 
-  // Tiny metallic ring — square wave cluster
-  const ring = audioCtx.createOscillator();
-  ring.type = 'square';
-  ring.frequency.value = 6800;
-  const ringG = audioCtx.createGain();
-  ringG.gain.setValueAtTime(amp * 0.15, t);
-  ringG.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.6);
-  ring.connect(ringG);
-  ringG.connect(masterGain);
-
-  noise.start(t); noise.stop(t + dur + 0.02);
-  ring.start(t); ring.stop(t + dur + 0.02);
+  const end = t + dur + 0.01;
+  noise.start(t); noise.stop(end);
+  cleanupAfter([noise, hp, noiseG], end);
 }
 
 // Main scheduling dispatcher
-// beatInBar: 0-indexed position within the bar
 function scheduleClick(time, type, beatInBar) {
   const t = Math.max(time, audioCtx.currentTime + 0.002);
 
   switch (type) {
     case 'downbeat':
-      // Beat 1: kick (accented)
       scheduleKick(t, true);
       break;
     case 'beat':
-      // Beats 2 & 4: snare — Beats 3: kick
       if (beatInBar === 1 || beatInBar === 3) {
         scheduleSnare(t);
       } else {
@@ -888,7 +904,7 @@ function scheduleClick(time, type, beatInBar) {
   }
 }
 
-const SCHEDULE_AHEAD = 0.1; // seconds
+const SCHEDULE_AHEAD = 0.2; // seconds (doubled from 0.1 for GC resilience)
 const TIMER_INTERVAL = 25;  // ms
 
 function scheduler() {
