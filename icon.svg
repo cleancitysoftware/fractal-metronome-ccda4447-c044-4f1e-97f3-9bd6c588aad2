@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0a0a0f"/>
+  <!-- Fractal-like concentric arcs -->
+  <g fill="none" stroke-linecap="round">
+    <circle cx="256" cy="256" r="180" stroke="#6366f1" stroke-width="6" opacity="0.2"/>
+    <circle cx="256" cy="256" r="130" stroke="#6366f1" stroke-width="6" opacity="0.35"/>
+    <circle cx="256" cy="256" r="80" stroke="#6366f1" stroke-width="6" opacity="0.5"/>
+  </g>
+  <!-- Beat dots: kick-snare-kick-snare -->
+  <circle cx="256" cy="76" r="18" fill="#f59e0b"/>
+  <circle cx="436" cy="256" r="14" fill="#818cf8"/>
+  <circle cx="256" cy="436" r="14" fill="#818cf8"/>
+  <circle cx="76" cy="256" r="14" fill="#818cf8"/>
+  <!-- Center play symbol -->
+  <polygon points="234,210 234,302 298,256" fill="#818cf8"/>
+</svg>

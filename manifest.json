@@ -1,0 +1,15 @@
+{
+  "name": "Fractal Metronome Suite",
+  "short_name": "FractalMetro",
+  "description": "9 timing models from rigid grid to deterministic chaos — 1/f fractal noise + phrase-level arcs with synthesized drum kit",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0f",
+  "theme_color": "#6366f1",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

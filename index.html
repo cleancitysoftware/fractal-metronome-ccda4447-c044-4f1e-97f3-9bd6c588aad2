@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fractal Metronome Suite</title>
+<meta name="description" content="9 timing models from rigid grid to deterministic chaos — synthesized drum kit with 1/f fractal noise">
+<meta name="theme-color" content="#6366f1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   :root {
     --bg: #0a0a0f;
@@ -1229,6 +1236,11 @@ window.addEventListener('load', () => {
     if (playing) regenerateNoise();
   }, v => v.toFixed(2));
 });
+
+// ─── Service Worker ───
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
