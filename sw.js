@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fractal-metro-v1';
+const CACHE_NAME = 'fractal-metro-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -24,8 +24,18 @@ self.addEventListener('activate', e => {
   );
 });
 
+// Stale-while-revalidate: serve from cache immediately,
+// fetch update in background so next open is fresh
 self.addEventListener('fetch', e => {
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request))
+    caches.open(CACHE_NAME).then(cache =>
+      cache.match(e.request).then(cached => {
+        const networkFetch = fetch(e.request).then(response => {
+          if (response.ok) cache.put(e.request, response.clone());
+          return response;
+        }).catch(() => cached);
+        return cached || networkFetch;
+      })
+    )
   );
 });
