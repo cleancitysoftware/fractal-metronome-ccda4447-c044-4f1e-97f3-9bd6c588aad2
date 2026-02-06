@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fractal Metronome Suite</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a25;
+    --border: #2a2a3a;
+    --text: #e0e0e8;
+    --text-dim: #8888a0;
+    --accent: #6366f1;
+    --accent-glow: #818cf8;
+    --red: #ef4444;
+    --green: #22c55e;
+    --orange: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 20px;
+  }
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--accent-glow);
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 24px;
+  }
+
+  /* ─── Transport ─── */
+  .transport {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .play-btn {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: transparent;
+    color: var(--accent-glow);
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .play-btn:hover { background: var(--accent); color: white; }
+  .play-btn.playing { background: var(--red); border-color: var(--red); color: white; }
+  .transport-info {
+    flex: 1;
+  }
+  .beat-display {
+    font-size: 2rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    line-height: 1;
+  }
+  .beat-display .bar-num { color: var(--accent-glow); }
+  .beat-display .beat-num { color: var(--text-dim); }
+  .transport-stats {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+  .bpm-display {
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .bpm-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1;
+  }
+  .bpm-label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-align: right;
+  }
+
+  /* ─── Controls Grid ─── */
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .control-group {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .control-group.full-width {
+    grid-column: 1 / -1;
+  }
+  .control-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .slider-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 4px;
+  }
+  .slider-val {
+    font-size: 0.8rem;
+    font-weight: 600;
+    min-width: 50px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ─── Metronome Selector ─── */
+  .metro-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .metro-btn {
+    padding: 8px 4px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface2);
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .metro-btn:hover { border-color: var(--accent); color: var(--text); }
+  .metro-btn.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+  }
+  .metro-btn .idx {
+    font-size: 0.6rem;
+    opacity: 0.6;
+  }
+
+  /* ─── Canvas ─── */
+  .viz-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+  .viz-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .viz-title {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+  }
+  .viz-legend {
+    font-size: 0.6rem;
+    color: var(--text-dim);
+  }
+  .viz-legend span { margin-left: 12px; }
+  .viz-legend .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    vertical-align: middle;
+    margin-right: 3px;
+  }
+  canvas {
+    width: 100%;
+    height: 200px;
+    display: block;
+    border-radius: 4px;
+  }
+
+  /* ─── Beat Indicator ─── */
+  .beat-dots {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .beat-dot {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    transition: all 0.08s;
+  }
+  .beat-dot.active {
+    background: var(--accent-glow);
+    border-color: var(--accent-glow);
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .beat-dot.downbeat.active {
+    background: var(--orange);
+    border-color: var(--orange);
+    box-shadow: 0 0 12px var(--orange);
+  }
+
+  /* ─── Info ─── */
+  .info {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+    padding: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .info strong { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Fractal Metronome Suite</h1>
+  <p class="subtitle">9 timing models from rigid grid to deterministic chaos &mdash; 1/f fractal noise + phrase-level arcs</p>
+
+  <!-- Beat Indicator -->
+  <div class="beat-dots" id="beatDots"></div>
+
+  <!-- Transport -->
+  <div class="transport">
+    <button class="play-btn" id="playBtn" title="Play / Stop">&#9654;</button>
+    <div class="transport-info">
+      <div class="beat-display">
+        <span class="bar-num" id="barNum">1</span>.<span class="beat-num" id="beatNum">1</span>
+      </div>
+      <div class="transport-stats" id="transportStats">Drift: 0.0 ms &middot; Beat 0 / 0</div>
+    </div>
+    <div class="bpm-display">
+      <div class="bpm-value" id="bpmValue">125</div>
+      <div class="bpm-label">BPM</div>
+    </div>
+  </div>
+
+  <!-- Metronome Selector -->
+  <div class="control-group full-width" style="margin-bottom:12px">
+    <div class="control-label">Metronome Type</div>
+    <div class="metro-grid" id="metroGrid"></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="control-group">
+      <div class="control-label">Tempo (BPM)</div>
+      <div class="slider-row">
+        <input type="range" id="bpmSlider" min="40" max="220" value="125" step="1">
+        <span class="slider-val" id="bpmSliderVal">125</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="control-label">Intensity</div>
+      <div class="slider-row">
+        <input type="range" id="intensitySlider" min="0" max="2" value="1" step="0.05">
+        <span class="slider-val" id="intensityVal">1.00</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="control-label">Pink Noise SD (ms)</div>
+      <div class="slider-row">
+        <input type="range" id="sdSlider" min="0" max="20" value="10" step="0.5">
+        <span class="slider-val" id="sdVal">10.0</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="control-label">Arc Amplitude (ms)</div>
+      <div class="slider-row">
+        <input type="range" id="arcSlider" min="0" max="30" value="12" step="0.5">
+        <span class="slider-val" id="arcVal">12.0</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="control-label">Phrase Length (bars)</div>
+      <div class="slider-row">
+        <input type="range" id="phraseSlider" min="2" max="32" value="8" step="1">
+        <span class="slider-val" id="phraseVal">8</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="control-label">Spectral Exponent (β)</div>
+      <div class="slider-row">
+        <input type="range" id="betaSlider" min="0" max="2" value="0.9" step="0.05">
+        <span class="slider-val" id="betaVal">0.90</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drift Visualization -->
+  <div class="viz-container">
+    <div class="viz-header">
+      <span class="viz-title">Drift from Grid</span>
+      <span class="viz-legend">
+        <span><span class="dot" style="background:#6366f1"></span>Total</span>
+        <span><span class="dot" style="background:#ef4444"></span>Macro</span>
+        <span><span class="dot" style="background:#22c55e33;border:1px solid #22c55e;border-radius:50%"></span>±1σ</span>
+      </span>
+    </div>
+    <canvas id="driftCanvas"></canvas>
+  </div>
+
+  <!-- Info -->
+  <div class="info" id="metroInfo"></div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// FRACTAL METRONOME SUITE — Web Audio Implementation
+// ═══════════════════════════════════════════════════════════════════════
+
+const METRONOMES = [
+  { id: 'rigid',         name: 'Rigid',         desc: 'Perfect isochronous grid. Baseline.' },
+  { id: 'pink',          name: 'Pink 1/f',      desc: 'Pure Hennig model. Beat-to-beat 1/f noise, β ≈ 0.9.' },
+  { id: 'sine_pink',     name: 'Sine + Pink',   desc: 'Smooth sinusoidal phrase arc + 1/f noise.' },
+  { id: 'todd_pink',     name: 'Todd + Pink',   desc: 'Asymmetric parabolic arch (Todd 1985) + 1/f.' },
+  { id: 'friberg_pink',  name: 'Friberg + Pink', desc: 'Power-function ritardando (Friberg 1999) + 1/f.' },
+  { id: 'sawtooth_pink', name: 'Sawtooth + Pink', desc: 'Linear accel → sharp decel + 1/f.' },
+  { id: 'golden_pink',   name: 'Golden + Pink', desc: 'Golden-ratio quasiperiodic + 1/f. Never repeats.' },
+  { id: 'chaos_pink',    name: 'Chaos + Pink',  desc: 'Logistic map edge-of-chaos + 1/f.' },
+  { id: 'prime_pink',    name: 'Prime + Pink',  desc: 'Superimposed prime-period waves + 1/f.' },
+];
+
+// ─── State ───
+let audioCtx = null;
+let playing = false;
+let currentMetro = 1; // pink by default
+let beatIndex = 0;
+let nextBeatTime = 0;
+let schedulerTimer = null;
+let pinkNoiseCache = null;
+let pinkSeed = 42;
+let chaosSequence = [];
+
+// Drift history for visualization
+const HISTORY_LEN = 128;
+let driftHistory = [];
+let macroHistory = [];
+
+// ─── Parameters ───
+let bpm = 125;
+let intensity = 1.0;
+let pinkSD = 10.0;
+let arcAmplitude = 12.0;
+let phraseLength = 8; // bars
+let beatsPerBar = 4;
+let beta = 0.9;
+
+// ─── 1/f Noise Generation (Voss-McCartney algorithm) ───
+class VossMcCartney {
+  constructor(numGenerators = 12, seed = 42) {
+    this.numGenerators = numGenerators;
+    this.rng = this._seedRng(seed);
+    this.generators = Array.from({length: numGenerators}, () => this.rng() * 2 - 1);
+    this.counter = 0;
+    this.accumulator = 0;
+    this.prevValues = new Float64Array(64);
+    this.prevIdx = 0;
+  }
+
+  _seedRng(seed) {
+    // Simple seeded PRNG (mulberry32)
+    let s = seed | 0;
+    return function() {
+      s = (s + 0x6D2B79F5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  next() {
+    this.counter++;
+    const changed = this.counter ^ (this.counter - 1);
+    for (let i = 0; i < this.numGenerators; i++) {
+      if (changed & (1 << i)) {
+        this.generators[i] = this.rng() * 2 - 1;
+      }
+    }
+    let sum = 0;
+    for (let i = 0; i < this.numGenerators; i++) sum += this.generators[i];
+    const raw = sum / this.numGenerators;
+
+    // Store and compute running stats for normalization
+    this.prevValues[this.prevIdx % 64] = raw;
+    this.prevIdx++;
+
+    return raw;
+  }
+
+  reset(seed) {
+    this.rng = this._seedRng(seed);
+    this.generators = Array.from({length: this.numGenerators}, () => this.rng() * 2 - 1);
+    this.counter = 0;
+    this.prevIdx = 0;
+  }
+}
+
+// Spectral shaping for more accurate 1/f
+function generate1fBlock(n, beta, seed) {
+  const rng = mulberry32(seed);
+  // Generate white noise
+  const re = new Float64Array(n);
+  const im = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    re[i] = gaussianRng(rng);
+    im[i] = gaussianRng(rng);
+  }
+
+  // Shape spectrum
+  for (let i = 1; i < n; i++) {
+    const freq = i / n;
+    const scale = Math.pow(freq, -beta / 2);
+    re[i] *= scale;
+    im[i] *= scale;
+  }
+  re[0] = 0; im[0] = 0;
+
+  // IFFT (simplified real-valued)
+  const result = ifftReal(re, im, n);
+
+  // Normalize to unit variance
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += result[i];
+  mean /= n;
+  let variance = 0;
+  for (let i = 0; i < n; i++) variance += (result[i] - mean) ** 2;
+  variance /= n;
+  const std = Math.sqrt(variance) || 1;
+  for (let i = 0; i < n; i++) result[i] = (result[i] - mean) / std;
+
+  return result;
+}
+
+function mulberry32(seed) {
+  let s = seed | 0;
+  return function() {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function gaussianRng(rng) {
+  let u, v, s;
+  do {
+    u = rng() * 2 - 1;
+    v = rng() * 2 - 1;
+    s = u * u + v * v;
+  } while (s >= 1 || s === 0);
+  return u * Math.sqrt(-2 * Math.log(s) / s);
+}
+
+// Simplified DFT/IDFT for small N (beats, not samples)
+function ifftReal(re, im, n) {
+  const out = new Float64Array(n);
+  for (let t = 0; t < n; t++) {
+    let sum = 0;
+    for (let k = 0; k < n; k++) {
+      const angle = 2 * Math.PI * k * t / n;
+      sum += re[k] * Math.cos(angle) - im[k] * Math.sin(angle);
+    }
+    out[t] = sum / n;
+  }
+  return out;
+}
+
+// Pre-generate a block of 1/f noise
+function regenerateNoise() {
+  const blockSize = 512;
+  pinkSeed = Math.floor(Math.random() * 100000);
+  pinkNoiseCache = generate1fBlock(blockSize, beta, pinkSeed);
+}
+
+function getPinkValue(beatIdx) {
+  if (!pinkNoiseCache) regenerateNoise();
+  return pinkNoiseCache[beatIdx % pinkNoiseCache.length];
+}
+
+// ─── Macro Waveforms ───
+
+function toddArch(phase, asymmetry = 1.3) {
+  const midpoint = 0.4;
+  if (phase < midpoint) {
+    const x = phase / midpoint;
+    return -Math.pow(Math.sin(x * Math.PI / 2), 1.0 / asymmetry);
+  } else {
+    const x = (phase - midpoint) / (1 - midpoint);
+    return Math.pow(Math.sin(x * Math.PI / 2), asymmetry);
+  }
+}
+
+function getMacroDrift(metroId, beatIdx) {
+  const phraseLenBeats = phraseLength * beatsPerBar;
+  const A = arcAmplitude * intensity;
+
+  switch (metroId) {
+    case 'rigid':
+    case 'pink':
+      return 0;
+
+    case 'sine_pink':
+      return A * Math.sin(2 * Math.PI * beatIdx / phraseLenBeats);
+
+    case 'todd_pink':
+      return A * toddArch((beatIdx % phraseLenBeats) / phraseLenBeats);
+
+    case 'friberg_pink': {
+      const phase = (beatIdx % phraseLenBeats) / phraseLenBeats;
+      if (phase < 0.6) return 0;
+      const ritPhase = (phase - 0.6) / 0.4;
+      return A * Math.pow(ritPhase, 2.5);
+    }
+
+    case 'sawtooth_pink': {
+      const phase = (beatIdx % phraseLenBeats) / phraseLenBeats;
+      const transition = 0.8;
+      const sharpness = 5.0;
+      if (phase < transition) {
+        return A * (-(phase / transition));
+      } else {
+        const snapPhase = (phase - transition) / (1 - transition);
+        const expDenom = 1 - Math.exp(-sharpness);
+        return A * (-1 + 2 * (1 - Math.exp(-sharpness * snapPhase)) / expDenom);
+      }
+    }
+
+    case 'golden_pink': {
+      const phi = (1 + Math.sqrt(5)) / 2;
+      const p1 = phraseLenBeats;
+      const p2 = phraseLenBeats * phi;
+      return A * Math.sin(2 * Math.PI * beatIdx / p1) +
+             (A / phi) * Math.sin(2 * Math.PI * beatIdx / p2);
+    }
+
+    case 'chaos_pink': {
+      const phraseIdx = Math.floor(beatIdx / phraseLenBeats);
+      if (phraseIdx >= chaosSequence.length) {
+        // Extend sequence
+        while (chaosSequence.length <= phraseIdx) {
+          const prev = chaosSequence.length > 0 ? chaosSequence[chaosSequence.length - 1] : 0.4;
+          const r = 3.85;
+          const rawPrev = (prev + 1) / 2; // map back to [0,1]
+          const next = r * rawPrev * (1 - rawPrev);
+          chaosSequence.push(2 * next - 1);
+        }
+      }
+      const chaosAmp = chaosSequence[phraseIdx] * A;
+      const phase = (beatIdx % phraseLenBeats) / phraseLenBeats;
+      const arch = toddArch(phase);
+      return chaosAmp * Math.abs(arch) * Math.sign(arch);
+    }
+
+    case 'prime_pink': {
+      const primes = [3, 5, 7, 11, 13];
+      let d = 0;
+      for (const p of primes) {
+        const period = p * beatsPerBar;
+        d += (A / p) * Math.sin(2 * Math.PI * beatIdx / period);
+      }
+      return d;
+    }
+
+    default:
+      return 0;
+  }
+}
+
+function getTotalDrift(beatIdx) {
+  const metro = METRONOMES[currentMetro];
+  let drift = 0;
+
+  // Macro
+  const macro = getMacroDrift(metro.id, beatIdx);
+  drift += macro;
+
+  // Micro (1/f) — all except rigid
+  let pink = 0;
+  if (metro.id !== 'rigid') {
+    pink = getPinkValue(beatIdx) * pinkSD * intensity;
+  }
+  drift += pink;
+
+  // Clamp
+  drift = Math.max(-40, Math.min(40, drift));
+
+  return { total: drift, macro, pink };
+}
+
+// ─── Audio ───
+
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+}
+
+function scheduleClick(time, isDownbeat) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.frequency.value = isDownbeat ? 800 : 1200;
+  const amp = isDownbeat ? 0.9 : 0.6;
+  const dur = isDownbeat ? 0.020 : 0.012;
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  gain.gain.setValueAtTime(amp, time);
+  gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+  osc.start(time);
+  osc.stop(time + dur + 0.01);
+}
+
+const SCHEDULE_AHEAD = 0.1; // seconds
+const TIMER_INTERVAL = 25;  // ms
+
+function scheduler() {
+  while (nextBeatTime < audioCtx.currentTime + SCHEDULE_AHEAD) {
+    const isDownbeat = (beatIndex % beatsPerBar) === 0;
+    const { total, macro, pink } = getTotalDrift(beatIndex);
+    const actualTime = nextBeatTime + total / 1000;
+
+    scheduleClick(Math.max(actualTime, audioCtx.currentTime + 0.005), isDownbeat);
+
+    // Record history
+    driftHistory.push(total);
+    macroHistory.push(macro);
+    if (driftHistory.length > HISTORY_LEN) {
+      driftHistory.shift();
+      macroHistory.shift();
+    }
+
+    // Update UI (debounced to visual beat)
+    updateBeatUI(beatIndex, total);
+
+    beatIndex++;
+    const beatPeriod = 60.0 / bpm;
+    nextBeatTime += beatPeriod;
+  }
+}
+
+function start() {
+  initAudio();
+  regenerateNoise();
+  chaosSequence = [0.4]; // reset chaos
+
+  beatIndex = 0;
+  nextBeatTime = audioCtx.currentTime + 0.1;
+  driftHistory = [];
+  macroHistory = [];
+  playing = true;
+
+  document.getElementById('playBtn').classList.add('playing');
+  document.getElementById('playBtn').innerHTML = '&#9632;';
+
+  schedulerTimer = setInterval(scheduler, TIMER_INTERVAL);
+  requestAnimationFrame(drawLoop);
+}
+
+function stop() {
+  playing = false;
+  if (schedulerTimer) clearInterval(schedulerTimer);
+  schedulerTimer = null;
+
+  document.getElementById('playBtn').classList.remove('playing');
+  document.getElementById('playBtn').innerHTML = '&#9654;';
+
+  // Clear beat dots
+  document.querySelectorAll('.beat-dot').forEach(d => d.classList.remove('active', 'downbeat'));
+}
+
+function toggle() {
+  if (playing) stop(); else start();
+}
+
+// ─── UI Updates ───
+
+function updateBeatUI(beat, drift) {
+  const bar = Math.floor(beat / beatsPerBar) + 1;
+  const beatInBar = (beat % beatsPerBar) + 1;
+
+  document.getElementById('barNum').textContent = bar;
+  document.getElementById('beatNum').textContent = beatInBar;
+  document.getElementById('transportStats').textContent =
+    `Drift: ${drift >= 0 ? '+' : ''}${drift.toFixed(1)} ms · Beat ${beat} · ${METRONOMES[currentMetro].name}`;
+
+  // Beat dots
+  const dots = document.querySelectorAll('.beat-dot');
+  dots.forEach((d, i) => {
+    d.classList.remove('active', 'downbeat');
+    if (i === beat % beatsPerBar) {
+      d.classList.add('active');
+      if (i === 0) d.classList.add('downbeat');
+    }
+  });
+}
+
+// ─── Canvas Visualization ───
+
+const canvas = document.getElementById('driftCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = (rect.width - 24) * 2; // retina
+  canvas.height = 400;
+  canvas.style.height = '200px';
+}
+
+function drawLoop() {
+  if (!playing) return;
+  drawDrift();
+  requestAnimationFrame(drawLoop);
+}
+
+function drawDrift() {
+  const w = canvas.width;
+  const h = canvas.height;
+  const pad = 40;
+
+  ctx.fillStyle = '#0a0a0f';
+  ctx.fillRect(0, 0, w, h);
+
+  if (driftHistory.length < 2) return;
+
+  const maxDrift = 45;
+  const n = driftHistory.length;
+
+  // Grid
+  ctx.strokeStyle = '#1a1a25';
+  ctx.lineWidth = 1;
+  for (let ms = -40; ms <= 40; ms += 10) {
+    const y = pad + (h - 2 * pad) * (1 - (ms + maxDrift) / (2 * maxDrift));
+    ctx.beginPath();
+    ctx.moveTo(pad, y);
+    ctx.lineTo(w - pad, y);
+    ctx.stroke();
+    if (ms % 20 === 0) {
+      ctx.fillStyle = '#555';
+      ctx.font = '18px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${ms}`, pad - 6, y + 5);
+    }
+  }
+
+  // Zero line
+  const zeroY = pad + (h - 2 * pad) * 0.5;
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(pad, zeroY);
+  ctx.lineTo(w - pad, zeroY);
+  ctx.stroke();
+
+  // ±1σ band
+  if (pinkSD * intensity > 0) {
+    const sdPx = (pinkSD * intensity) / (2 * maxDrift) * (h - 2 * pad);
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.08)';
+    ctx.fillRect(pad, zeroY - sdPx, w - 2 * pad, sdPx * 2);
+  }
+
+  // Bar lines
+  const startBeat = beatIndex - n;
+  for (let i = 0; i < n; i++) {
+    const globalBeat = startBeat + i;
+    if (globalBeat >= 0 && globalBeat % beatsPerBar === 0) {
+      const x = pad + (i / (HISTORY_LEN - 1)) * (w - 2 * pad);
+      const isPhraseStart = globalBeat % (phraseLength * beatsPerBar) === 0;
+      ctx.strokeStyle = isPhraseStart ? '#444' : '#1f1f2f';
+      ctx.lineWidth = isPhraseStart ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(x, pad);
+      ctx.lineTo(x, h - pad);
+      ctx.stroke();
+    }
+  }
+
+  // Macro drift (red dashed)
+  if (macroHistory.some(v => v !== 0)) {
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = pad + (i / (HISTORY_LEN - 1)) * (w - 2 * pad);
+      const y = pad + (h - 2 * pad) * (1 - (macroHistory[i] + maxDrift) / (2 * maxDrift));
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Total drift (blue)
+  ctx.strokeStyle = '#6366f1';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = pad + (i / (HISTORY_LEN - 1)) * (w - 2 * pad);
+    const y = pad + (h - 2 * pad) * (1 - (driftHistory[i] + maxDrift) / (2 * maxDrift));
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Current beat dot
+  if (n > 0) {
+    const lastX = pad + ((n - 1) / (HISTORY_LEN - 1)) * (w - 2 * pad);
+    const lastY = pad + (h - 2 * pad) * (1 - (driftHistory[n - 1] + maxDrift) / (2 * maxDrift));
+    ctx.fillStyle = '#818cf8';
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Axis label
+  ctx.fillStyle = '#666';
+  ctx.font = '18px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('ms', pad - 20, pad - 10);
+}
+
+// ─── Build UI ───
+
+function buildMetroGrid() {
+  const grid = document.getElementById('metroGrid');
+  grid.innerHTML = '';
+  METRONOMES.forEach((m, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'metro-btn' + (i === currentMetro ? ' active' : '');
+    btn.innerHTML = `<span class="idx">${i}.</span> ${m.name}`;
+    btn.onclick = () => selectMetronome(i);
+    grid.appendChild(btn);
+  });
+  updateInfo();
+}
+
+function selectMetronome(idx) {
+  currentMetro = idx;
+  document.querySelectorAll('.metro-btn').forEach((b, i) => {
+    b.classList.toggle('active', i === idx);
+  });
+  if (playing) {
+    regenerateNoise();
+    chaosSequence = [0.4];
+    driftHistory = [];
+    macroHistory = [];
+  }
+  updateInfo();
+}
+
+function buildBeatDots() {
+  const container = document.getElementById('beatDots');
+  container.innerHTML = '';
+  for (let i = 0; i < beatsPerBar; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'beat-dot';
+    container.appendChild(dot);
+  }
+}
+
+function updateInfo() {
+  const m = METRONOMES[currentMetro];
+  document.getElementById('metroInfo').innerHTML =
+    `<strong>${m.name}</strong> — ${m.desc}<br>` +
+    `Phrase: ${phraseLength} bars (${phraseLength * beatsPerBar} beats) · ` +
+    `Pink SD: ${(pinkSD * intensity).toFixed(1)} ms · ` +
+    `Arc: ${(arcAmplitude * intensity).toFixed(1)} ms · ` +
+    `β: ${beta.toFixed(2)}`;
+}
+
+// ─── Slider bindings ───
+
+function bindSlider(id, valId, getter, setter, formatter) {
+  const slider = document.getElementById(id);
+  const val = document.getElementById(valId);
+  slider.oninput = () => {
+    setter(parseFloat(slider.value));
+    val.textContent = formatter(getter());
+    updateInfo();
+  };
+}
+
+// ─── Init ───
+
+window.addEventListener('load', () => {
+  buildMetroGrid();
+  buildBeatDots();
+  resizeCanvas();
+  drawDrift(); // draw empty canvas
+
+  window.addEventListener('resize', resizeCanvas);
+
+  document.getElementById('playBtn').onclick = toggle;
+
+  // Keyboard shortcut
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && e.target === document.body) {
+      e.preventDefault();
+      toggle();
+    }
+  });
+
+  bindSlider('bpmSlider', 'bpmSliderVal', () => bpm, v => {
+    bpm = v;
+    document.getElementById('bpmValue').textContent = Math.round(v);
+  }, v => Math.round(v));
+
+  bindSlider('intensitySlider', 'intensityVal', () => intensity, v => {
+    intensity = v;
+  }, v => v.toFixed(2));
+
+  bindSlider('sdSlider', 'sdVal', () => pinkSD, v => {
+    pinkSD = v;
+  }, v => v.toFixed(1));
+
+  bindSlider('arcSlider', 'arcVal', () => arcAmplitude, v => {
+    arcAmplitude = v;
+  }, v => v.toFixed(1));
+
+  bindSlider('phraseSlider', 'phraseVal', () => phraseLength, v => {
+    phraseLength = Math.round(v);
+  }, v => Math.round(v));
+
+  bindSlider('betaSlider', 'betaVal', () => beta, v => {
+    beta = v;
+    if (playing) regenerateNoise();
+  }, v => v.toFixed(2));
+});
+</script>
+</body>
+</html>

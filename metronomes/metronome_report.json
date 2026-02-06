@@ -1,0 +1,170 @@
+{
+  "bpm": 125.0,
+  "duration_s": 120.0,
+  "n_beats": 250,
+  "n_bars": 62,
+  "time_signature": "4/4",
+  "seed": 42,
+  "phrase_length_bars": 8,
+  "intensity": 1.0,
+  "hierarchy": false,
+  "configurations": {
+    "rigid": {
+      "bpm": 125.0,
+      "duration_s": 120.0,
+      "beats_per_bar": 4,
+      "phrase_length_bars": 8,
+      "pink_sd_ms": null,
+      "pink_exponent": null,
+      "arc_amplitude_ms": null,
+      "hierarchy": false,
+      "intensity": 1.0,
+      "measured_total_sd_ms": 0.0,
+      "drift_range_ms": [
+        0.0,
+        0.0
+      ]
+    },
+    "pink": {
+      "bpm": 125.0,
+      "duration_s": 120.0,
+      "beats_per_bar": 4,
+      "phrase_length_bars": 8,
+      "pink_sd_ms": 10.0,
+      "pink_exponent": 0.9,
+      "arc_amplitude_ms": null,
+      "hierarchy": false,
+      "intensity": 1.0,
+      "measured_total_sd_ms": 10.0,
+      "drift_range_ms": [
+        -26.575377623265798,
+        24.631290644203876
+      ],
+      "measured_pink_sd_ms": 10.0
+    },
+    "sine_pink": {
+      "bpm": 125.0,
+      "duration_s": 120.0,
+      "beats_per_bar": 4,
+      "phrase_length_bars": 8,
+      "pink_sd_ms": 10.0,
+      "pink_exponent": 0.9,
+      "arc_amplitude_ms": 12.0,
+      "hierarchy": false,
+      "intensity": 1.0,
+      "measured_total_sd_ms": 13.501965094580948,
+      "drift_range_ms": [
+        -36.31474244775715,
+        35.71784503433932
+      ],
+      "measured_pink_sd_ms": 10.0
+    },
+    "todd_pink": {
+      "bpm": 125.0,
+      "duration_s": 120.0,
+      "beats_per_bar": 4,
+      "phrase_length_bars": 8,
+      "pink_sd_ms": 10.0,
+      "pink_exponent": 0.9,
+      "arc_amplitude_ms": 12.0,
+      "hierarchy": false,
+      "intensity": 1.0,
+      "measured_total_sd_ms": 12.462845518150178,
+      "drift_range_ms": [
+        -29.369776732310104,
+        29.577582437923397
+      ],
+      "measured_pink_sd_ms": 10.0
+    },
+    "friberg_pink": {
+      "bpm": 125.0,
+      "duration_s": 120.0,
+      "beats_per_bar": 4,
+      "phrase_length_bars": 8,
+      "pink_sd_ms": 10.0,
+      "pink_exponent": 0.9,
+      "arc_amplitude_ms": 12.0,
+      "hierarchy": false,
+      "intensity": 1.0,
+      "measured_total_sd_ms": 10.23708795972907,
+      "drift_range_ms": [
+        -26.575377623265798,
+        27.421507582449067
+      ],
+      "measured_pink_sd_ms": 10.0
+    },
+    "sawtooth_pink": {
+      "bpm": 125.0,
+      "duration_s": 120.0,
+      "beats_per_bar": 4,
+      "phrase_length_bars": 8,
+      "pink_sd_ms": 10.0,
+      "pink_exponent": 0.9,
+      "arc_amplitude_ms": 12.0,
+      "hierarchy": false,
+      "intensity": 1.0,
+      "measured_total_sd_ms": 11.804778866305869,
+      "drift_range_ms": [
+        -35.32656908291838,
+        29.436937474299697
+      ],
+      "measured_pink_sd_ms": 10.0
+    },
+    "golden_pink": {
+      "bpm": 125.0,
+      "duration_s": 120.0,
+      "beats_per_bar": 4,
+      "phrase_length_bars": 8,
+      "pink_sd_ms": 10.0,
+      "pink_exponent": 0.9,
+      "arc_amplitude_ms": 12.0,
+      "hierarchy": false,
+      "intensity": 1.0,
+      "measured_total_sd_ms": 14.932158333506505,
+      "drift_range_ms": [
+        -33.48754825976985,
+        38.35594626708339
+      ],
+      "measured_pink_sd_ms": 10.0
+    },
+    "chaos_pink": {
+      "bpm": 125.0,
+      "duration_s": 120.0,
+      "beats_per_bar": 4,
+      "phrase_length_bars": 8,
+      "pink_sd_ms": 10.0,
+      "pink_exponent": 0.9,
+      "arc_amplitude_ms": 12.0,
+      "hierarchy": false,
+      "intensity": 1.0,
+      "measured_total_sd_ms": 9.766260728171996,
+      "drift_range_ms": [
+        -28.538737269556897,
+        22.081362076120563
+      ],
+      "measured_pink_sd_ms": 10.0
+    },
+    "prime_pink": {
+      "bpm": 125.0,
+      "duration_s": 120.0,
+      "beats_per_bar": 4,
+      "phrase_length_bars": 8,
+      "pink_sd_ms": 10.0,
+      "pink_exponent": 0.9,
+      "arc_amplitude_ms": 12.0,
+      "hierarchy": false,
+      "intensity": 1.0,
+      "measured_total_sd_ms": 10.806436392642944,
+      "drift_range_ms": [
+        -29.40199475619708,
+        31.275477696710688
+      ],
+      "measured_pink_sd_ms": 10.0
+    }
+  },
+  "psd_validation": {
+    "target_beta": 0.9,
+    "measured_beta": 1.1130591880229626,
+    "error": 0.21305918802296253
+  }
+}
