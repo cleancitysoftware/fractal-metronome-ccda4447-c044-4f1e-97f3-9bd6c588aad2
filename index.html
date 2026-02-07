@@ -355,7 +355,15 @@
     <div class="subdiv-grid" id="driftModeGrid">
       <button class="subdiv-btn active" data-driftmode="displacement">Displacement</button>
       <button class="subdiv-btn" data-driftmode="tempo">Tempo Drift</button>
-      <button class="subdiv-btn" data-driftmode="dynamics">Dynamics</button>
+    </div>
+  </div>
+
+  <!-- Mix Rotation -->
+  <div class="control-group full-width" style="margin-bottom:12px">
+    <div class="control-label">Mix Rotation</div>
+    <div class="subdiv-grid" id="mixRotationGrid">
+      <button class="subdiv-btn active" data-mixrot="off">Off</button>
+      <button class="subdiv-btn" data-mixrot="on">On</button>
     </div>
   </div>
 
@@ -480,6 +488,7 @@ let beatsPerBar = 4;
 let beta = 0.9;
 let subdivision = 1; // 1=quarter, 2=8th, 3=triplet, 4=16th
 let driftMode = 'displacement'; // 'displacement' or 'tempo'
+let mixRotation = false; // when true, drift also rotates instrument mix balance
 let cumulativeDrift = 0; // tracks total wander in tempo mode (ms)
 let masterVolume = 0.8;
 let masterGain = null;
@@ -1013,22 +1022,22 @@ function scheduleHihat(time, open, vel = 1) {
 }
 
 // Main scheduling dispatcher
-function scheduleClick(time, type, beatInBar, vel = 1) {
+function scheduleClick(time, type, beatInBar, velK = 1, velS = 1, velH = 1) {
   const t = Math.max(time, audioCtx.currentTime + 0.002);
 
   switch (type) {
     case 'downbeat':
-      scheduleKick(t, true, vel);
+      scheduleKick(t, true, velK);
       break;
     case 'beat':
       if (beatInBar === 1 || beatInBar === 3) {
-        scheduleSnare(t, vel);
+        scheduleSnare(t, velS);
       } else {
-        scheduleKick(t, false, vel);
+        scheduleKick(t, false, velK);
       }
       break;
     case 'subdivision':
-      scheduleHihat(t, false, vel);
+      scheduleHihat(t, false, velH);
       break;
   }
 }
@@ -1042,41 +1051,44 @@ function scheduler() {
     const { total, macro, pink } = getTotalDrift(beatIndex);
     const beatPeriod = 60.0 / bpm;
 
-    let actualTime, effectivePeriod, vel;
+    let actualTime, effectivePeriod;
     if (driftMode === 'displacement') {
       actualTime = nextBeatTime + total / 1000;
       effectivePeriod = beatPeriod;
-      vel = 1;
-    } else if (driftMode === 'tempo') {
+    } else {
       // Tempo drift: drift modulates the beat period itself
       effectivePeriod = beatPeriod + total / 1000;
       // Clamp to prevent negative or absurdly short/long periods
       effectivePeriod = Math.max(beatPeriod * 0.5, Math.min(beatPeriod * 1.5, effectivePeriod));
       actualTime = nextBeatTime;
       cumulativeDrift += total;
-      vel = 1;
-    } else {
-      // Dynamics: drift modulates volume, timing stays rigid
-      actualTime = nextBeatTime;
-      effectivePeriod = beatPeriod;
-      // Map drift [-40, +40] ms → velocity [0.2, 1.4], clamped
-      vel = Math.max(0.15, Math.min(1.4, 1 + (total / 40) * 0.6));
+    }
+
+    // Mix rotation: layers on top of either timing mode
+    // cos(x) + cos(x+2π/3) + cos(x+4π/3) = 0 → constant total volume
+    let velK = 1, velS = 1, velH = 1;
+    if (mixRotation) {
+      const norm = Math.max(-1, Math.min(1, total / 40));
+      const angle = norm * Math.PI;
+      velK = Math.max(0.15, 0.65 + 0.55 * Math.cos(angle));
+      velS = Math.max(0.15, 0.65 + 0.55 * Math.cos(angle + 2.094));
+      velH = Math.max(0.15, 0.65 + 0.55 * Math.cos(angle + 4.189));
     }
 
     // Schedule main beat click (kick or snare)
     const beatInBar = beatIndex % beatsPerBar;
     const clickType = isDownbeat ? 'downbeat' : 'beat';
     const safeTime = Math.max(actualTime, audioCtx.currentTime + 0.005);
-    scheduleClick(safeTime, clickType, beatInBar, vel);
+    scheduleClick(safeTime, clickType, beatInBar, velK, velS, velH);
 
     // Hi-hat rides on every beat + subdivisions
     if (subdivision > 1) {
       // Hi-hat on the main beat too (layered with kick/snare)
-      scheduleHihat(safeTime, false, vel);
+      scheduleHihat(safeTime, false, velH);
       // Plus subdivision hi-hats between beats
       for (let s = 1; s < subdivision; s++) {
         const subTime = actualTime + (s / subdivision) * effectivePeriod;
-        scheduleHihat(Math.max(subTime, audioCtx.currentTime + 0.005), false, vel);
+        scheduleHihat(Math.max(subTime, audioCtx.currentTime + 0.005), false, velH);
       }
     }
 
@@ -1089,7 +1101,7 @@ function scheduler() {
     }
 
     // Update UI (debounced to visual beat)
-    updateBeatUI(beatIndex, total, effectivePeriod, vel);
+    updateBeatUI(beatIndex, total, effectivePeriod, velK, velS, velH);
 
     beatIndex++;
     nextBeatTime += effectivePeriod;
@@ -1135,28 +1147,25 @@ function toggle() {
 
 // ─── UI Updates ───
 
-function updateBeatUI(beat, drift, effectivePeriod, vel) {
+function updateBeatUI(beat, drift, effectivePeriod, velK, velS, velH) {
   const bar = Math.floor(beat / beatsPerBar) + 1;
   const beatInBar = (beat % beatsPerBar) + 1;
 
   document.getElementById('barNum').textContent = bar;
   document.getElementById('beatNum').textContent = beatInBar;
 
+  const mixStr = mixRotation ? ` K:${Math.round(velK*100)} S:${Math.round(velS*100)} H:${Math.round(velH*100)}` : '';
+
   if (driftMode === 'tempo' && effectivePeriod) {
     const instantBpm = 60 / effectivePeriod;
     document.getElementById('bpmValue').textContent = instantBpm.toFixed(1);
     const sign = cumulativeDrift >= 0 ? '+' : '';
     document.getElementById('transportStats').textContent =
-      `\u0394${drift >= 0 ? '+' : ''}${drift.toFixed(1)} ms \u00b7 Wander: ${sign}${(cumulativeDrift / 1000).toFixed(2)}s \u00b7 ${METRONOMES[currentMetro].name}`;
-  } else if (driftMode === 'dynamics' && vel !== undefined) {
-    document.getElementById('bpmValue').textContent = Math.round(bpm);
-    const velPct = Math.round(vel * 100);
-    document.getElementById('transportStats').textContent =
-      `Vel: ${velPct}% \u00b7 Beat ${beat} \u00b7 ${METRONOMES[currentMetro].name}`;
+      `\u0394${drift >= 0 ? '+' : ''}${drift.toFixed(1)} ms \u00b7 Wander: ${sign}${(cumulativeDrift / 1000).toFixed(2)}s${mixStr} \u00b7 ${METRONOMES[currentMetro].name}`;
   } else {
     document.getElementById('bpmValue').textContent = Math.round(bpm);
     document.getElementById('transportStats').textContent =
-      `Drift: ${drift >= 0 ? '+' : ''}${drift.toFixed(1)} ms \u00b7 Beat ${beat} \u00b7 ${METRONOMES[currentMetro].name}`;
+      `Drift: ${drift >= 0 ? '+' : ''}${drift.toFixed(1)} ms${mixStr} \u00b7 Beat ${beat} \u00b7 ${METRONOMES[currentMetro].name}`;
   }
 
   // Beat dots
@@ -1340,11 +1349,11 @@ function buildBeatDots() {
 
 function updateInfo() {
   const m = METRONOMES[currentMetro];
-  const modeLabels = { displacement: 'Displacement', tempo: 'Tempo Drift', dynamics: 'Dynamics' };
-  const modeLabel = modeLabels[driftMode];
+  const modeLabel = driftMode === 'displacement' ? 'Displacement' : 'Tempo Drift';
+  const mixLabel = mixRotation ? ' + Mix Rotation' : '';
   document.getElementById('metroInfo').innerHTML =
     `<strong>${m.name}</strong> — ${m.desc}<br>` +
-    `Mode: ${modeLabel} · Phrase: ${phraseLength} bars (${phraseLength * beatsPerBar} beats) · ` +
+    `Mode: ${modeLabel}${mixLabel} · Phrase: ${phraseLength} bars (${phraseLength * beatsPerBar} beats) · ` +
     `Pink SD: ${(pinkSD * intensity).toFixed(1)} ms · ` +
     `Arc: ${(arcAmplitude * intensity).toFixed(1)} ms · ` +
     `β: ${beta.toFixed(2)}`;
@@ -1443,8 +1452,18 @@ window.addEventListener('load', () => {
       document.querySelectorAll('#driftModeGrid .subdiv-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       cumulativeDrift = 0;
-      const vizTitles = { displacement: 'Drift from Grid', tempo: 'Tempo Modulation', dynamics: 'Dynamic Variation' };
-      document.querySelector('.viz-title').textContent = vizTitles[driftMode];
+      document.querySelector('.viz-title').textContent =
+        driftMode === 'displacement' ? 'Drift from Grid' : 'Tempo Modulation';
+      updateInfo();
+    };
+  });
+
+  // Mix rotation toggle
+  document.querySelectorAll('#mixRotationGrid .subdiv-btn').forEach(btn => {
+    btn.onclick = () => {
+      mixRotation = btn.dataset.mixrot === 'on';
+      document.querySelectorAll('#mixRotationGrid .subdiv-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
       updateInfo();
     };
   });
