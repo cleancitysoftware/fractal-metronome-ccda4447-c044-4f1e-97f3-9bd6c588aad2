@@ -147,8 +147,33 @@
     font-size: 0.8rem;
     font-weight: 600;
     min-width: 50px;
-    text-align: right;
+    text-align: center;
     font-variant-numeric: tabular-nums;
+  }
+  .stepper-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background 0.1s, border-color 0.1s;
+  }
+  .stepper-btn:active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
   }
 
   /* ─── Metronome Selector ─── */
@@ -1279,11 +1304,56 @@ function updateInfo() {
 function bindSlider(id, valId, getter, setter, formatter) {
   const slider = document.getElementById(id);
   const val = document.getElementById(valId);
+  const row = slider.closest('.slider-row');
+  const step = parseFloat(slider.step) || 1;
+  const min = parseFloat(slider.min);
+  const max = parseFloat(slider.max);
+
   slider.oninput = () => {
     setter(parseFloat(slider.value));
     val.textContent = formatter(getter());
     updateInfo();
   };
+
+  // Create stepper buttons
+  const minus = document.createElement('button');
+  minus.className = 'stepper-btn';
+  minus.textContent = '\u2212'; // −
+  minus.setAttribute('aria-label', 'Decrease');
+  const plus = document.createElement('button');
+  plus.className = 'stepper-btn';
+  plus.textContent = '+';
+  plus.setAttribute('aria-label', 'Increase');
+
+  // Insert: [slider] [−] [value] [+]
+  row.insertBefore(minus, val);
+  row.appendChild(plus);
+
+  function nudge(dir) {
+    const raw = parseFloat(slider.value) + dir * step;
+    const clamped = Math.min(max, Math.max(min, raw));
+    // Round to step precision to avoid float drift
+    const decimals = (slider.step.split('.')[1] || '').length;
+    slider.value = clamped.toFixed(decimals);
+    setter(parseFloat(slider.value));
+    val.textContent = formatter(getter());
+    updateInfo();
+  }
+
+  // Long-press repeat for both buttons
+  [minus, plus].forEach((btn, i) => {
+    const dir = i === 0 ? -1 : 1;
+    let interval = null;
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      nudge(dir);
+      interval = setInterval(() => nudge(dir), 100);
+    });
+    const stop = () => { if (interval) { clearInterval(interval); interval = null; } };
+    btn.addEventListener('pointerup', stop);
+    btn.addEventListener('pointerleave', stop);
+    btn.addEventListener('pointercancel', stop);
+  });
 }
 
 // ─── Init ───
