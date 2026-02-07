@@ -349,6 +349,15 @@
     </div>
   </div>
 
+  <!-- Drift Mode -->
+  <div class="control-group full-width" style="margin-bottom:12px">
+    <div class="control-label">Drift Mode</div>
+    <div class="subdiv-grid" id="driftModeGrid">
+      <button class="subdiv-btn active" data-driftmode="displacement">Displacement</button>
+      <button class="subdiv-btn" data-driftmode="tempo">Tempo Drift</button>
+    </div>
+  </div>
+
   <!-- Controls -->
   <div class="controls">
     <div class="control-group">
@@ -469,6 +478,8 @@ let phraseLength = 8; // bars
 let beatsPerBar = 4;
 let beta = 0.9;
 let subdivision = 1; // 1=quarter, 2=8th, 3=triplet, 4=16th
+let driftMode = 'displacement'; // 'displacement' or 'tempo'
+let cumulativeDrift = 0; // tracks total wander in tempo mode (ms)
 let masterVolume = 0.8;
 let masterGain = null;
 
@@ -1028,8 +1039,20 @@ function scheduler() {
   while (nextBeatTime < audioCtx.currentTime + SCHEDULE_AHEAD) {
     const isDownbeat = (beatIndex % beatsPerBar) === 0;
     const { total, macro, pink } = getTotalDrift(beatIndex);
-    const actualTime = nextBeatTime + total / 1000;
     const beatPeriod = 60.0 / bpm;
+
+    let actualTime, effectivePeriod;
+    if (driftMode === 'displacement') {
+      actualTime = nextBeatTime + total / 1000;
+      effectivePeriod = beatPeriod;
+    } else {
+      // Tempo drift: drift modulates the beat period itself
+      effectivePeriod = beatPeriod + total / 1000;
+      // Clamp to prevent negative or absurdly short/long periods
+      effectivePeriod = Math.max(beatPeriod * 0.5, Math.min(beatPeriod * 1.5, effectivePeriod));
+      actualTime = nextBeatTime;
+      cumulativeDrift += total;
+    }
 
     // Schedule main beat click (kick or snare)
     const beatInBar = beatIndex % beatsPerBar;
@@ -1043,7 +1066,7 @@ function scheduler() {
       scheduleHihat(safeTime, false);
       // Plus subdivision hi-hats between beats
       for (let s = 1; s < subdivision; s++) {
-        const subTime = actualTime + (s / subdivision) * beatPeriod;
+        const subTime = actualTime + (s / subdivision) * effectivePeriod;
         scheduleHihat(Math.max(subTime, audioCtx.currentTime + 0.005), false);
       }
     }
@@ -1057,10 +1080,10 @@ function scheduler() {
     }
 
     // Update UI (debounced to visual beat)
-    updateBeatUI(beatIndex, total);
+    updateBeatUI(beatIndex, total, effectivePeriod);
 
     beatIndex++;
-    nextBeatTime += beatPeriod;
+    nextBeatTime += effectivePeriod;
   }
 }
 
@@ -1069,6 +1092,7 @@ function start() {
   regenerateNoise();
   chaosSequence = [0.4]; // reset chaos
   primeWavePhase = 0;
+  cumulativeDrift = 0;
 
   beatIndex = 0;
   nextBeatTime = audioCtx.currentTime + 0.1;
@@ -1090,6 +1114,7 @@ function stop() {
 
   document.getElementById('playBtn').classList.remove('playing');
   document.getElementById('playBtn').innerHTML = '&#9654;';
+  document.getElementById('bpmValue').textContent = Math.round(bpm);
 
   // Clear beat dots
   document.querySelectorAll('.beat-dot').forEach(d => d.classList.remove('active', 'downbeat'));
@@ -1101,14 +1126,24 @@ function toggle() {
 
 // ─── UI Updates ───
 
-function updateBeatUI(beat, drift) {
+function updateBeatUI(beat, drift, effectivePeriod) {
   const bar = Math.floor(beat / beatsPerBar) + 1;
   const beatInBar = (beat % beatsPerBar) + 1;
 
   document.getElementById('barNum').textContent = bar;
   document.getElementById('beatNum').textContent = beatInBar;
-  document.getElementById('transportStats').textContent =
-    `Drift: ${drift >= 0 ? '+' : ''}${drift.toFixed(1)} ms · Beat ${beat} · ${METRONOMES[currentMetro].name}`;
+
+  if (driftMode === 'tempo' && effectivePeriod) {
+    const instantBpm = 60 / effectivePeriod;
+    document.getElementById('bpmValue').textContent = instantBpm.toFixed(1);
+    const sign = cumulativeDrift >= 0 ? '+' : '';
+    document.getElementById('transportStats').textContent =
+      `\u0394${drift >= 0 ? '+' : ''}${drift.toFixed(1)} ms \u00b7 Wander: ${sign}${(cumulativeDrift / 1000).toFixed(2)}s \u00b7 ${METRONOMES[currentMetro].name}`;
+  } else {
+    document.getElementById('bpmValue').textContent = Math.round(bpm);
+    document.getElementById('transportStats').textContent =
+      `Drift: ${drift >= 0 ? '+' : ''}${drift.toFixed(1)} ms \u00b7 Beat ${beat} \u00b7 ${METRONOMES[currentMetro].name}`;
+  }
 
   // Beat dots
   const dots = document.querySelectorAll('.beat-dot');
@@ -1291,9 +1326,10 @@ function buildBeatDots() {
 
 function updateInfo() {
   const m = METRONOMES[currentMetro];
+  const modeLabel = driftMode === 'displacement' ? 'Displacement' : 'Tempo Drift';
   document.getElementById('metroInfo').innerHTML =
     `<strong>${m.name}</strong> — ${m.desc}<br>` +
-    `Phrase: ${phraseLength} bars (${phraseLength * beatsPerBar} beats) · ` +
+    `Mode: ${modeLabel} · Phrase: ${phraseLength} bars (${phraseLength * beatsPerBar} beats) · ` +
     `Pink SD: ${(pinkSD * intensity).toFixed(1)} ms · ` +
     `Arc: ${(arcAmplitude * intensity).toFixed(1)} ms · ` +
     `β: ${beta.toFixed(2)}`;
@@ -1377,11 +1413,24 @@ window.addEventListener('load', () => {
   });
 
   // Subdivision buttons
-  document.querySelectorAll('.subdiv-btn').forEach(btn => {
+  document.querySelectorAll('#subdivGrid .subdiv-btn').forEach(btn => {
     btn.onclick = () => {
       subdivision = parseInt(btn.dataset.subdiv);
-      document.querySelectorAll('.subdiv-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('#subdivGrid .subdiv-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+    };
+  });
+
+  // Drift mode buttons
+  document.querySelectorAll('#driftModeGrid .subdiv-btn').forEach(btn => {
+    btn.onclick = () => {
+      driftMode = btn.dataset.driftmode;
+      document.querySelectorAll('#driftModeGrid .subdiv-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      cumulativeDrift = 0;
+      document.querySelector('.viz-title').textContent =
+        driftMode === 'displacement' ? 'Drift from Grid' : 'Tempo Modulation';
+      updateInfo();
     };
   });
 
