@@ -1092,6 +1092,28 @@ function scheduler() {
       }
     }
 
+    // Ghost fills: when mix rotation emphasizes an instrument, it gets more active
+    // Subtle ghost notes at subdivision positions — quiet, probabilistic, deterministic
+    if (mixRotation && subdivision >= 2) {
+      for (let s = 1; s < subdivision; s++) {
+        const subTime = actualTime + (s / subdivision) * effectivePeriod;
+        const safeSubTime = Math.max(subTime, audioCtx.currentTime + 0.005);
+        // Deterministic hash per beat+subdivision slot (Knuth multiplicative)
+        const hashK = (((beatIndex * 17 + s * 3 + 1) * 2654435761) >>> 0) / 4294967296;
+        const hashS = (((beatIndex * 31 + s * 7 + 5) * 2654435761) >>> 0) / 4294967296;
+        // Ghost kick: probability rises with emphasis, caps ~35%
+        const kickChance = Math.min(0.35, Math.max(0, (velK - 0.85) * 2.5));
+        if (kickChance > 0 && hashK < kickChance) {
+          scheduleKick(safeSubTime, false, 0.2);
+        }
+        // Ghost snare: same logic, but don't overlap with ghost kick on same slot
+        const snareChance = Math.min(0.35, Math.max(0, (velS - 0.85) * 2.5));
+        if (snareChance > 0 && hashS < snareChance && hashK >= kickChance) {
+          scheduleSnare(safeSubTime, 0.18);
+        }
+      }
+    }
+
     // Record history
     driftHistory.push(total);
     macroHistory.push(macro);
