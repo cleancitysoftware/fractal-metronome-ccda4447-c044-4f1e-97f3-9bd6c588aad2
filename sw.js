@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fractal-metro-v2';
+const CACHE_NAME = 'fractal-metro-v3';
 const ASSETS = [
   './',
   './index.html',

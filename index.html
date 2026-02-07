@@ -408,7 +408,7 @@ const METRONOMES = [
   { id: 'sawtooth_pink', name: 'Sawtooth + Pink', desc: 'Linear accel → sharp decel + 1/f.' },
   { id: 'golden_pink',   name: 'Golden + Pink', desc: 'Golden-ratio quasiperiodic + 1/f. Never repeats.' },
   { id: 'chaos_pink',    name: 'Chaos + Pink',  desc: 'Logistic map edge-of-chaos + 1/f.' },
-  { id: 'prime_pink',    name: 'Prime + Pink',  desc: 'Superimposed prime-period waves + 1/f.' },
+  { id: 'prime_waves',   name: 'Prime Waves',   desc: 'Cubic spline through primes × 1/f noise + Riemann zeta-zero LFO drift.' },
 ];
 
 // ─── State ───
@@ -421,6 +421,14 @@ let schedulerTimer = null;
 let pinkNoiseCache = null;
 let pinkSeed = 42;
 let chaosSequence = [];
+
+// ─── Prime Waves state ───
+const PRIME_PINGPONG = [3,5,7,11,13,17,19,23,29,31,29,23,19,17,13,11,7,5]; // 18 knots
+const PRIME_MEDIAN = 13;
+const ZETA_ZEROS = [14.134725, 21.022040, 25.010858];
+const ZETA_PHASES = [0, Math.PI * 0.618, Math.PI * 1.236]; // golden-ratio spaced
+let primeSplineCoeffs = null;
+let primeWavePhase = 0;
 
 // Drift history for visualization
 const HISTORY_LEN = 128;
@@ -571,6 +579,92 @@ function getPinkValue(beatIdx) {
   return pinkNoiseCache[beatIdx % pinkNoiseCache.length];
 }
 
+// ─── Natural Cubic Spline (Thomas algorithm) ───
+
+function computeNaturalCubicSpline(y) {
+  const n = y.length - 1;
+  const h = 1; // equally spaced knots
+  const a = y.slice();
+  const b = new Float64Array(n);
+  const c = new Float64Array(n + 1);
+  const d = new Float64Array(n);
+  const mu = new Float64Array(n + 1);
+  const z = new Float64Array(n + 1);
+
+  // Tridiagonal system
+  for (let i = 1; i < n; i++) {
+    const l = 4 - mu[i - 1];
+    mu[i] = 1 / l;
+    z[i] = (3 * (a[i + 1] - 2 * a[i] + a[i - 1]) - z[i - 1]) / l;
+  }
+
+  // Back-substitution
+  for (let j = n - 1; j >= 0; j--) {
+    c[j] = z[j] - mu[j] * c[j + 1];
+    b[j] = (a[j + 1] - a[j]) - (c[j + 1] + 2 * c[j]) / 3;
+    d[j] = (c[j + 1] - c[j]) / 3;
+  }
+
+  return { a, b, c, d, n };
+}
+
+function evaluateSpline(coeffs, t) {
+  // t in [0, 1) maps to segments [0, numSegments)
+  const seg = t * coeffs.n;
+  const i = Math.min(Math.floor(seg), coeffs.n - 1);
+  const dt = seg - i;
+  return coeffs.a[i] + coeffs.b[i] * dt + coeffs.c[i] * dt * dt + coeffs.d[i] * dt * dt * dt;
+}
+
+function ensurePrimeSpline() {
+  if (!primeSplineCoeffs) {
+    primeSplineCoeffs = computeNaturalCubicSpline(PRIME_PINGPONG);
+  }
+  return primeSplineCoeffs;
+}
+
+// ─── Zeta-zero LFO ───
+
+function getZetaZeroDrift(beatIdx) {
+  const n = Math.max(beatIdx, 1);
+  const logN = Math.log(n);
+  let sum = 0;
+  for (let k = 0; k < ZETA_ZEROS.length; k++) {
+    sum += Math.cos(ZETA_ZEROS[k] * logN + ZETA_PHASES[k]);
+  }
+  return sum / ZETA_ZEROS.length; // range [-1, 1]
+}
+
+// ─── Prime Waves combined drift ───
+
+function getPrimeWavesTotalDrift(beatIdx) {
+  const coeffs = ensurePrimeSpline();
+  const phraseLenBeats = phraseLength * beatsPerBar;
+
+  // Phase accumulator: base rate = one full ping-pong cycle per 2 phrase lengths
+  const baseRate = 1 / (phraseLenBeats * 2);
+  const zetaDrift = getZetaZeroDrift(beatIdx);
+  const rate = baseRate * (1 + 0.3 * zetaDrift); // ±30% sweep speed variation
+  primeWavePhase = (primeWavePhase + rate) % 1.0;
+
+  // Evaluate spline at current phase → prime value
+  const primeVal = evaluateSpline(coeffs, primeWavePhase);
+  const primeScale = primeVal / PRIME_MEDIAN; // ~0.23 to ~2.38
+
+  // Layer 1: 1/f noise scaled by prime envelope (multiplicative)
+  const pink = getPinkValue(beatIdx) * pinkSD * intensity * primeScale;
+
+  // Layer 3: zeta structural drift (additive)
+  const zetaComponent = zetaDrift * arcAmplitude * intensity * 0.3;
+
+  // Macro = prime envelope visualization (shows the smooth prime waveform)
+  const macro = (primeScale - 1) * pinkSD * intensity + zetaComponent;
+
+  const total = Math.max(-40, Math.min(40, pink + zetaComponent));
+
+  return { total, macro, pink };
+}
+
 // ─── Macro Waveforms ───
 
 function toddArch(phase, asymmetry = 1.3) {
@@ -645,15 +739,7 @@ function getMacroDrift(metroId, beatIdx) {
       return chaosAmp * Math.abs(arch) * Math.sign(arch);
     }
 
-    case 'prime_pink': {
-      const primes = [3, 5, 7, 11, 13];
-      let d = 0;
-      for (const p of primes) {
-        const period = p * beatsPerBar;
-        d += (A / p) * Math.sin(2 * Math.PI * beatIdx / period);
-      }
-      return d;
-    }
+    // prime_waves handled via getTotalDrift early return
 
     default:
       return 0;
@@ -662,6 +748,12 @@ function getMacroDrift(metroId, beatIdx) {
 
 function getTotalDrift(beatIdx) {
   const metro = METRONOMES[currentMetro];
+
+  // Prime Waves: multiplicative architecture — handled separately
+  if (metro.id === 'prime_waves') {
+    return getPrimeWavesTotalDrift(beatIdx);
+  }
+
   let drift = 0;
 
   // Macro
@@ -951,6 +1043,7 @@ function start() {
   initAudio();
   regenerateNoise();
   chaosSequence = [0.4]; // reset chaos
+  primeWavePhase = 0;
 
   beatIndex = 0;
   nextBeatTime = audioCtx.currentTime + 0.1;
@@ -1153,6 +1246,8 @@ function selectMetronome(idx) {
   if (playing) {
     regenerateNoise();
     chaosSequence = [0.4];
+    primeWavePhase = 0;
+    primeSplineCoeffs = null; // recompute on next use
     driftHistory = [];
     macroHistory = [];
   }
