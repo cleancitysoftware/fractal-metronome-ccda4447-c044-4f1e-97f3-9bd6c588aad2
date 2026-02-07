@@ -355,6 +355,7 @@
     <div class="subdiv-grid" id="driftModeGrid">
       <button class="subdiv-btn active" data-driftmode="displacement">Displacement</button>
       <button class="subdiv-btn" data-driftmode="tempo">Tempo Drift</button>
+      <button class="subdiv-btn" data-driftmode="dynamics">Dynamics</button>
     </div>
   </div>
 
@@ -911,9 +912,9 @@ function cleanupAfter(nodes, time) {
   }, ms);
 }
 
-function scheduleKick(time, accent) {
+function scheduleKick(time, accent, vel = 1) {
   const t = time;
-  const amp = accent ? 0.7 : 0.5;
+  const amp = (accent ? 0.7 : 0.5) * vel;
 
   const body = audioCtx.createOscillator();
   body.type = 'sine';
@@ -944,7 +945,7 @@ function scheduleKick(time, accent) {
   cleanupAfter([body, bodyG, click, clickG], end);
 }
 
-function scheduleSnare(time) {
+function scheduleSnare(time, vel = 1) {
   const t = time;
 
   const body = audioCtx.createOscillator();
@@ -952,7 +953,7 @@ function scheduleSnare(time) {
   body.frequency.setValueAtTime(185, t);
   body.frequency.exponentialRampToValueAtTime(140, t + 0.03);
   const bodyG = audioCtx.createGain();
-  bodyG.gain.setValueAtTime(0.35, t);
+  bodyG.gain.setValueAtTime(0.35 * vel, t);
   bodyG.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
   body.connect(bodyG);
   bodyG.connect(masterGain);
@@ -968,8 +969,8 @@ function scheduleSnare(time) {
   hi.frequency.value = 6000;
   hi.gain.value = 4;
   const noiseG = audioCtx.createGain();
-  noiseG.gain.setValueAtTime(0.28, t);
-  noiseG.gain.linearRampToValueAtTime(0.22, t + 0.01);
+  noiseG.gain.setValueAtTime(0.28 * vel, t);
+  noiseG.gain.linearRampToValueAtTime(0.22 * vel, t + 0.01);
   noiseG.gain.exponentialRampToValueAtTime(0.0001, t + 0.10);
   noise.connect(bp);
   bp.connect(hi);
@@ -987,10 +988,10 @@ function scheduleSnare(time) {
   cleanupAfter([body, bodyG, noise, bp, hi, noiseG], end);
 }
 
-function scheduleHihat(time, open) {
+function scheduleHihat(time, open, vel = 1) {
   const t = time;
   const dur = open ? 0.12 : 0.04;
-  const amp = open ? 0.12 : 0.09;
+  const amp = (open ? 0.12 : 0.09) * vel;
 
   // Single filtered noise — simplified chain (1 filter instead of 2 + oscillator)
   const noise = audioCtx.createBufferSource();
@@ -1012,22 +1013,22 @@ function scheduleHihat(time, open) {
 }
 
 // Main scheduling dispatcher
-function scheduleClick(time, type, beatInBar) {
+function scheduleClick(time, type, beatInBar, vel = 1) {
   const t = Math.max(time, audioCtx.currentTime + 0.002);
 
   switch (type) {
     case 'downbeat':
-      scheduleKick(t, true);
+      scheduleKick(t, true, vel);
       break;
     case 'beat':
       if (beatInBar === 1 || beatInBar === 3) {
-        scheduleSnare(t);
+        scheduleSnare(t, vel);
       } else {
-        scheduleKick(t, false);
+        scheduleKick(t, false, vel);
       }
       break;
     case 'subdivision':
-      scheduleHihat(t, false);
+      scheduleHihat(t, false, vel);
       break;
   }
 }
@@ -1041,33 +1042,41 @@ function scheduler() {
     const { total, macro, pink } = getTotalDrift(beatIndex);
     const beatPeriod = 60.0 / bpm;
 
-    let actualTime, effectivePeriod;
+    let actualTime, effectivePeriod, vel;
     if (driftMode === 'displacement') {
       actualTime = nextBeatTime + total / 1000;
       effectivePeriod = beatPeriod;
-    } else {
+      vel = 1;
+    } else if (driftMode === 'tempo') {
       // Tempo drift: drift modulates the beat period itself
       effectivePeriod = beatPeriod + total / 1000;
       // Clamp to prevent negative or absurdly short/long periods
       effectivePeriod = Math.max(beatPeriod * 0.5, Math.min(beatPeriod * 1.5, effectivePeriod));
       actualTime = nextBeatTime;
       cumulativeDrift += total;
+      vel = 1;
+    } else {
+      // Dynamics: drift modulates volume, timing stays rigid
+      actualTime = nextBeatTime;
+      effectivePeriod = beatPeriod;
+      // Map drift [-40, +40] ms → velocity [0.2, 1.4], clamped
+      vel = Math.max(0.15, Math.min(1.4, 1 + (total / 40) * 0.6));
     }
 
     // Schedule main beat click (kick or snare)
     const beatInBar = beatIndex % beatsPerBar;
     const clickType = isDownbeat ? 'downbeat' : 'beat';
     const safeTime = Math.max(actualTime, audioCtx.currentTime + 0.005);
-    scheduleClick(safeTime, clickType, beatInBar);
+    scheduleClick(safeTime, clickType, beatInBar, vel);
 
     // Hi-hat rides on every beat + subdivisions
     if (subdivision > 1) {
       // Hi-hat on the main beat too (layered with kick/snare)
-      scheduleHihat(safeTime, false);
+      scheduleHihat(safeTime, false, vel);
       // Plus subdivision hi-hats between beats
       for (let s = 1; s < subdivision; s++) {
         const subTime = actualTime + (s / subdivision) * effectivePeriod;
-        scheduleHihat(Math.max(subTime, audioCtx.currentTime + 0.005), false);
+        scheduleHihat(Math.max(subTime, audioCtx.currentTime + 0.005), false, vel);
       }
     }
 
@@ -1080,7 +1089,7 @@ function scheduler() {
     }
 
     // Update UI (debounced to visual beat)
-    updateBeatUI(beatIndex, total, effectivePeriod);
+    updateBeatUI(beatIndex, total, effectivePeriod, vel);
 
     beatIndex++;
     nextBeatTime += effectivePeriod;
@@ -1126,7 +1135,7 @@ function toggle() {
 
 // ─── UI Updates ───
 
-function updateBeatUI(beat, drift, effectivePeriod) {
+function updateBeatUI(beat, drift, effectivePeriod, vel) {
   const bar = Math.floor(beat / beatsPerBar) + 1;
   const beatInBar = (beat % beatsPerBar) + 1;
 
@@ -1139,6 +1148,11 @@ function updateBeatUI(beat, drift, effectivePeriod) {
     const sign = cumulativeDrift >= 0 ? '+' : '';
     document.getElementById('transportStats').textContent =
       `\u0394${drift >= 0 ? '+' : ''}${drift.toFixed(1)} ms \u00b7 Wander: ${sign}${(cumulativeDrift / 1000).toFixed(2)}s \u00b7 ${METRONOMES[currentMetro].name}`;
+  } else if (driftMode === 'dynamics' && vel !== undefined) {
+    document.getElementById('bpmValue').textContent = Math.round(bpm);
+    const velPct = Math.round(vel * 100);
+    document.getElementById('transportStats').textContent =
+      `Vel: ${velPct}% \u00b7 Beat ${beat} \u00b7 ${METRONOMES[currentMetro].name}`;
   } else {
     document.getElementById('bpmValue').textContent = Math.round(bpm);
     document.getElementById('transportStats').textContent =
@@ -1326,7 +1340,8 @@ function buildBeatDots() {
 
 function updateInfo() {
   const m = METRONOMES[currentMetro];
-  const modeLabel = driftMode === 'displacement' ? 'Displacement' : 'Tempo Drift';
+  const modeLabels = { displacement: 'Displacement', tempo: 'Tempo Drift', dynamics: 'Dynamics' };
+  const modeLabel = modeLabels[driftMode];
   document.getElementById('metroInfo').innerHTML =
     `<strong>${m.name}</strong> — ${m.desc}<br>` +
     `Mode: ${modeLabel} · Phrase: ${phraseLength} bars (${phraseLength * beatsPerBar} beats) · ` +
@@ -1428,8 +1443,8 @@ window.addEventListener('load', () => {
       document.querySelectorAll('#driftModeGrid .subdiv-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       cumulativeDrift = 0;
-      document.querySelector('.viz-title').textContent =
-        driftMode === 'displacement' ? 'Drift from Grid' : 'Tempo Modulation';
+      const vizTitles = { displacement: 'Drift from Grid', tempo: 'Tempo Modulation', dynamics: 'Dynamic Variation' };
+      document.querySelector('.viz-title').textContent = vizTitles[driftMode];
       updateInfo();
     };
   });
