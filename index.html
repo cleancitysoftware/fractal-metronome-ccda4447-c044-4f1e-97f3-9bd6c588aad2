@@ -122,6 +122,11 @@
     gap: 12px;
     margin-bottom: 24px;
   }
+  @media (max-width: 600px) {
+    .controls {
+      grid-template-columns: 1fr;
+    }
+  }
   .control-group {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -312,6 +317,18 @@
     border-radius: 8px;
   }
   .info strong { color: var(--text); }
+
+  /* ─── Mobile Optimizations ─── */
+  @media (max-width: 600px) {
+    h1 { font-size: 1.25rem; }
+    .subtitle { font-size: 0.7rem; margin-bottom: 16px; }
+    .container { padding: 16px 12px; }
+    .control-group { padding: 10px; }
+    .controls { gap: 10px; margin-bottom: 16px; }
+    .control-group.full-width { margin-bottom: 10px; }
+    .viz-container { margin-bottom: 12px; }
+    canvas { height: 160px; }
+  }
 </style>
 </head>
 <body>
