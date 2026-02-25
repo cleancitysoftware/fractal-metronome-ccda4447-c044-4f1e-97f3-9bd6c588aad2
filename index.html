@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Fractal Metronome Suite</title>
 <meta name="description" content="9 timing models from rigid grid to deterministic chaos — synthesized drum kit with 1/f fractal noise">
 <meta name="theme-color" content="#6366f1">
@@ -31,12 +31,17 @@
     color: var(--text);
     font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
     min-height: 100vh;
+    min-height: 100dvh;
     overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    overscroll-behavior: none;
   }
   .container {
     max-width: 900px;
     margin: 0 auto;
     padding: 24px 20px;
+    padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
   }
   h1 {
     font-size: 1.5rem;
@@ -151,14 +156,14 @@
     font-variant-numeric: tabular-nums;
   }
   .stepper-btn {
-    width: 28px;
-    height: 28px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     border: 1px solid var(--border);
     background: var(--surface2);
     color: var(--text);
     font-family: inherit;
-    font-size: 1rem;
+    font-size: 1.2rem;
     line-height: 1;
     cursor: pointer;
     display: flex;
@@ -367,6 +372,16 @@
     </div>
   </div>
 
+  <!-- BPM Ramp -->
+  <div class="control-group full-width" style="margin-bottom:12px">
+    <div class="control-label">BPM Ramp</div>
+    <div class="subdiv-grid" id="bpmRampGrid">
+      <button class="subdiv-btn active" data-bpmramp="off">Off</button>
+      <button class="subdiv-btn" data-bpmramp="up">↑ Up</button>
+      <button class="subdiv-btn" data-bpmramp="down">↓ Down</button>
+    </div>
+  </div>
+
   <!-- Controls -->
   <div class="controls">
     <div class="control-group">
@@ -416,6 +431,20 @@
       <div class="slider-row">
         <input type="range" id="betaSlider" min="0" max="2" value="0.9" step="0.05">
         <span class="slider-val" id="betaVal">0.90</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="control-label">Ramp Increment (BPM)</div>
+      <div class="slider-row">
+        <input type="range" id="rampIncrementSlider" min="0.1" max="10" value="1" step="0.1">
+        <span class="slider-val" id="rampIncrementVal">1.0</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <div class="control-label">Ramp Interval (seconds)</div>
+      <div class="slider-row">
+        <input type="range" id="rampIntervalSlider" min="10" max="300" value="60" step="5">
+        <span class="slider-val" id="rampIntervalVal">60</span>
       </div>
     </div>
   </div>
@@ -492,6 +521,12 @@ let mixRotation = false; // when true, drift also rotates instrument mix balance
 let cumulativeDrift = 0; // tracks total wander in tempo mode (ms)
 let masterVolume = 0.8;
 let masterGain = null;
+
+// BPM Ramp state
+let bpmRampMode = 'off'; // 'off', 'up', 'down'
+let rampIncrement = 1.0; // BPM change per interval
+let rampInterval = 60; // seconds between BPM changes
+let rampTimer = null; // interval timer ID
 
 // ─── 1/f Noise Generation (Voss-McCartney algorithm) ───
 class VossMcCartney {
@@ -1148,16 +1183,40 @@ function start() {
 
   schedulerTimer = setInterval(scheduler, TIMER_INTERVAL);
   requestAnimationFrame(drawLoop);
+  startBpmRamp();
+  requestWakeLock();
+}
+
+function startBpmRamp() {
+  stopBpmRamp();
+  if (bpmRampMode !== 'off') {
+    rampTimer = setInterval(() => {
+      const delta = bpmRampMode === 'up' ? rampIncrement : -rampIncrement;
+      bpm = Math.max(40, Math.min(220, bpm + delta));
+      document.getElementById('bpmValue').textContent = Math.round(bpm);
+      document.getElementById('bpmSlider').value = bpm;
+      document.getElementById('bpmSliderVal').textContent = Math.round(bpm);
+    }, rampInterval * 1000);
+  }
+}
+
+function stopBpmRamp() {
+  if (rampTimer) {
+    clearInterval(rampTimer);
+    rampTimer = null;
+  }
 }
 
 function stop() {
   playing = false;
   if (schedulerTimer) clearInterval(schedulerTimer);
   schedulerTimer = null;
+  stopBpmRamp();
 
   document.getElementById('playBtn').classList.remove('playing');
   document.getElementById('playBtn').innerHTML = '&#9654;';
   document.getElementById('bpmValue').textContent = Math.round(bpm);
+  releaseWakeLock();
 
   // Clear beat dots
   document.querySelectorAll('.beat-dot').forEach(d => d.classList.remove('active', 'downbeat'));
@@ -1373,9 +1432,10 @@ function updateInfo() {
   const m = METRONOMES[currentMetro];
   const modeLabel = driftMode === 'displacement' ? 'Displacement' : 'Tempo Drift';
   const mixLabel = mixRotation ? ' + Mix Rotation' : '';
+  const rampLabel = bpmRampMode !== 'off' ? ` · Ramp: ${bpmRampMode === 'up' ? '↑' : '↓'}${rampIncrement.toFixed(1)} BPM/${rampInterval}s` : '';
   document.getElementById('metroInfo').innerHTML =
     `<strong>${m.name}</strong> — ${m.desc}<br>` +
-    `Mode: ${modeLabel}${mixLabel} · Phrase: ${phraseLength} bars (${phraseLength * beatsPerBar} beats) · ` +
+    `Mode: ${modeLabel}${mixLabel}${rampLabel} · Phrase: ${phraseLength} bars (${phraseLength * beatsPerBar} beats) · ` +
     `Pink SD: ${(pinkSD * intensity).toFixed(1)} ms · ` +
     `Arc: ${(arcAmplitude * intensity).toFixed(1)} ms · ` +
     `β: ${beta.toFixed(2)}`;
@@ -1490,6 +1550,19 @@ window.addEventListener('load', () => {
     };
   });
 
+  // BPM ramp toggle
+  document.querySelectorAll('#bpmRampGrid .subdiv-btn').forEach(btn => {
+    btn.onclick = () => {
+      bpmRampMode = btn.dataset.bpmramp;
+      document.querySelectorAll('#bpmRampGrid .subdiv-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (playing) {
+        startBpmRamp();
+      }
+      updateInfo();
+    };
+  });
+
   // Volume slider
   bindSlider('volumeSlider', 'volumeVal', () => masterVolume, v => {
     masterVolume = v;
@@ -1521,11 +1594,32 @@ window.addEventListener('load', () => {
     beta = v;
     if (playing) regenerateNoise();
   }, v => v.toFixed(2));
+
+  bindSlider('rampIncrementSlider', 'rampIncrementVal', () => rampIncrement, v => {
+    rampIncrement = v;
+    if (playing) startBpmRamp();
+  }, v => v.toFixed(1));
+
+  bindSlider('rampIntervalSlider', 'rampIntervalVal', () => rampInterval, v => {
+    rampInterval = Math.round(v);
+    if (playing) startBpmRamp();
+  }, v => Math.round(v));
 });
 
 // ─── Service Worker ───
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// ─── Wake Lock (keep screen on while playing) ───
+let wakeLock = null;
+async function requestWakeLock() {
+  if ('wakeLock' in navigator) {
+    try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+}
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 </script>
 </body>
